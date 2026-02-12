@@ -1,228 +1,219 @@
-# 📰 Semi-Supervised Nepali News Classification with BERT-GCN
+# Semi-Supervised News Classification Using BERT-GCN Architecture
 
-A hybrid deep learning system combining **BERT embeddings** with **Graph Convolutional Networks (GCN)** for semi-supervised text classification, achieving **95.68% accuracy** using only **10% labeled training data**.
+## Executive Summary
+
+This report presents a **transductive semi-supervised** news classification system combining BERT embeddings with Graph Convolutional Networks (GCN).
+
+- **Dataset:** 122,817 Nepali news documents (10 categories)
+- **Labeled (mask=True):** 15% (10% train, 5% val)
+- **Unlabeled (mask=False during training):** 85%
+- **Learning Setup:** Transductive (all documents in graph, only 15% labels used for loss)
+
+### Results
+
+- **BERT-only (Inductive):** 87.77% accuracy  
+- **BERT-GCN (Transductive):** 95.68% accuracy  
+- **Improvement:** +7.91 percentage points  
+- **Weighted F1:** 95.64%  
+- **Macro F1:** 95.21%
 
 ---
 
-## 🎯 Key Results
+## 1. Experimental Setup
 
-| Model | Test Accuracy | Test F1 | Training Data | Learning Type |
-|--------|--------------|----------|---------------|---------------|
-| **BERT Baseline** | 87.77% | 87.74% | 10% labeled | Inductive |
-| **BERT-GCN** | **95.68%** | **95.64%** | 10% labeled + 85% unlabeled features | Transductive |
-| **Improvement** | **+7.91%** | **+7.90%** | — | — |
+All 122,817 documents have ground-truth labels.
 
-**Dataset:** 122,817 Nepali news articles across 10 categories
+Boolean masks simulate semi-supervised learning:
 
----
+```python
+labels = np.load('labels.npy')
 
-## 🏗️ Architecture Overview
-
+train_mask  # 10%
+val_mask    # 5%
+test_mask   # 85%
 ```
-Stage 1: BERT Fine-tuning (10% labeled data)
-        ↓
-Stage 2: Embedding Extraction (all 122,817 documents)
-        ↓
-Stage 3: Heterogeneous Graph Construction
-        ↓ (Document nodes + Word nodes + NPMI edges)
-Stage 4: GCN Training (transductive learning)
-```
+
+- Loss computed only on `train_mask=True`
+- Validation on `val_mask=True`
+- Test evaluation on `test_mask=True`
+- Test documents are included in graph but their labels are hidden during training
+
+### Learning Paradigms
+
+**BERT (Inductive):**
+- Trained on 15% labeled data
+- Test documents unseen during training
+
+**GCN (Transductive):**
+- Graph includes ALL documents
+- Uses features of unlabeled documents
+- Labels hidden, but features and edges participate in training
 
 ---
 
-## 📊 Dataset
+## 2. Stage 1: BERT Baseline
 
-- **Total Documents:** 122,817  
-- **Categories (10):**  
-  art, crime, economy, education, entertainment, global, health, politics, science & technology, sports  
-- **Language:** Nepali  
+### Model
 
-### Split
-
-- **Training:** 10% (12,281 documents)  
-- **Validation:** 5% (6,141 documents)  
-- **Test:** 85% (104,395 documents)
-
----
-
-# 🔧 Technical Details
-
-## Stage 1: BERT Classifier
-
-**Model:** `google/muril-base-cased` (Multilingual BERT for Indic languages)
-
-### Architecture
-
-- Freeze embeddings + first **8/12** BERT layers  
-- Fine-tune last **4 layers**
-- Classification head: `768 → 256 → 128 → 10`
+- `google/muril-base-cased`
+- Freeze embeddings + first 8 layers
+- Fine-tune last 4 layers
+- Classifier: 768 → 256 → 128 → 10
+- Trainable params: 29.2M (12.3%)
 
 ### Training
 
-- Batch size: 8  
-- Learning rate: 1e-5  
-- Epochs: 20 (early stopping at epoch 12)  
-- Trainable parameters: **29.2M (12.3% of total)**  
+- Train: 12,281 docs (10%)
+- Val: 6,141 docs (5%)
+- Test: 104,395 docs (85%)
+- LR: 1e-5
+- Batch size: 8
+- Epochs: 20 (early stopping at 12)
 
-**Result:** 87.77% test accuracy
+### Test Performance
 
----
+- Accuracy: **87.77%**
+- Weighted F1: **87.74%**
 
-## Stage 2: Embedding Extraction
-
-- Extract **768-dimensional CLS embeddings**
-- For all **122,817 documents**
-- Processing time: **29 minutes**
-
-**Output:**
-
-```
-node_features.npy   # Shape: (122,817 × 768)
-```
+Weakest: Art (76.11% F1)  
+Strongest: Sports (97.13% F1)
 
 ---
 
-## Stage 3: Graph Construction
+## 3. Stage 2: BERT Embedding Extraction
 
-### Heterogeneous Graph
+After BERT training, embeddings extracted for **ALL 122,817 documents**.
 
-### Nodes (142,817 total)
-
-- 122,817 document nodes (BERT embeddings)
-- 20,000 word nodes (zero-initialized)
-
-### Edges (35.3M total)
-
-- Word-Word: 2.5M edges (NPMI > 0.2)
-- Document-Word: 30.4M edges (TF-IDF)
-
-### NPMI Parameters
-
-- Window size: 15  
-- Minimum word frequency: 3  
-- Minimum co-occurrence: 3  
-- Threshold: 0.2  
-
-### Graph Normalization
-
-D^(-1/2) A D^(-1/2)
-
----
-
-## Stage 4: GCN Training
-
-### Architecture
-
-- 2-layer GCN  
-- `768 → 256 → 10`
-- Dropout: 0.5  
-- Parameters: 199K  
-
-### Mini-batch Sampling
-
-- Batch size: 512 documents  
-- Neighbor sampling: `[10, 5]`  
-- Learning rate: 0.01  
-
-### Training
-
-- Epochs: 200 (best at epoch 90)  
-- ~19 seconds per epoch  
-- Validation F1: 92.22%  
-
-**Final Result:** 95.68% test accuracy
-
----
-
-# 📈 Per-Category Performance
-
-| Category | BERT F1 | GCN F1 | Improvement |
-|------------|----------|----------|-------------|
-| Art | 76.11% | 82.38% | +6.27% |
-| Crime | 93.83% | 98.75% | +4.92% |
-| Economy | 87.43% | 96.44% | +9.01% |
-| Education | 90.14% | 97.63% | +7.49% |
-| Entertainment | 81.59% | 88.07% | +6.48% |
-| Global | 87.61% | 97.76% | +10.15% |
-| Health | 86.71% | 98.00% | +11.29% |
-| Politics | 89.37% | 98.31% | +8.94% |
-| Science & Tech | 83.49% | 95.74% | +12.25% |
-| Sports | 97.13% | 99.04% | +1.91% |
-
----
-
-# 🚀 Installation
-
-```bash
-git clone https://github.com/yourusername/bert-gcn-nepali-news.git
-cd bert-gcn-nepali-news
-
-python -m venv .venv
-source .venv/bin/activate
-
-pip install torch transformers scikit-learn scipy pandas numpy tqdm
-```
-
----
-
-# 💻 Usage
-
-## 1️⃣ BERT Training
-
-```bash
-python train_bert.py
-```
+- CLS embeddings (768-dim)
+- Batch size: 32
 
 Outputs:
-- `best_bert_only_model.pt`
-- `train_mask.npy`
-- `val_mask.npy`
-- `test_mask.npy`
-
----
-
-## 2️⃣ Extract Embeddings
-
-```bash
-python extract_embeddings.py
-```
-
-Outputs:
-- `node_features.npy`
+- `node_features.npy` (122,817 × 768)
 - `labels.npy`
 - `embedding_metadata.json`
 
 ---
 
-## 3️⃣ Build Graph
+## 4. Stage 3: Graph Construction
 
-```bash
-python build_graph.py
+### Graph Structure
+
+**Nodes:**
+- 122,817 document nodes
+- 20,000 word nodes
+- Total: 142,817
+
+**Edges:**
+- Word–Word (NPMI > 0.2): 2,476,469
+- Document–Word (TF-IDF): 15,178,639 non-zero entries
+- Total edges: 35,453,033
+- Density: ~0.17%
+
+### NPMI Settings
+
+- Window size: 15
+- Min frequency: 3
+- Threshold: 0.2
+
+### Normalization
+
+```
+D^(-1/2) A D^(-1/2)
 ```
 
-Outputs:
-- `heterogeneous_adj.npz`
-- `heterogeneous_features.npy`
-- `heterogeneous_labels.npy`
-- `node_mapping.json`
+### Node Features
+
+- Document nodes: BERT embeddings
+- Word nodes: Zero vectors (learned via message passing)
 
 ---
 
-## 4️⃣ Train GCN
+## 5. GCN Training (Transductive)
 
-```bash
-python train_gcn.py
+### Setup
+
+- Graph includes ALL documents
+- Loss computed only on 10% train nodes
+- Neighbor sampling includes unlabeled nodes
+
+```python
+train_nodes = np.where(train_mask[:n_docs])[0]
 ```
 
-Outputs:
+### Architecture
+
+- 2-layer GCN
+- 768 → 256 → 10
+- Dropout: 0.5
+- Parameters: 199K
+
+### Sampling
+
+- Batch size: 512
+- Neighbors: [10, 5]
+
+### Final Test Results
+
+- Accuracy: **95.68%**
+- Weighted F1: **95.64%**
+- Macro F1: **95.21%**
+- Improvement over BERT: **+7.91 pp**
+- Relative error reduction: 59.9%
+
+---
+
+## Per-Category F1 (GCN)
+
+| Category | F1 | Improvement |
+|----------|----|------------|
+| Art | 82.38% | +6.27 |
+| Crime | 98.75% | +4.92 |
+| Economy | 96.44% | +9.01 |
+| Education | 97.63% | +7.49 |
+| Entertainment | 88.07% | +6.48 |
+| Global | 97.76% | +10.15 |
+| Health | 98.00% | +11.29 |
+| Politics | 98.31% | +8.94 |
+| Science & Tech | 95.74% | +12.25 |
+| Sports | 99.04% | +1.91 |
+
+Largest gains: Science, Health, Global.
+
+---
+
+## 6. Key Insight
+
+The improvement comes primarily from **transductive learning**:
+
+- BERT: learns from 15%, must generalize to unseen 85%
+- GCN: learns from 15% labels but uses features and graph structure of all 122,817 documents
+
+GCN sees test document embeddings and their graph connections during training — but not their labels.
+
+---
+
+## 7. Limitations
+
+- Controlled simulation (all documents have labels)
+- Transductive (cannot handle new documents without rebuilding graph)
+- Static graph
+- Sampling approximation
+
+---
+
+## 8. Conclusion
+
+- BERT-GCN achieves **95.68% accuracy** using only 15% labeled data.
+- Major improvement comes from **transductive learning**.
+- Ideal for fixed corpus classification.
+- Less suitable for streaming or real-time systems.
+
+---
+
+## Saved Artifacts
+
+- `best_bert_only_model.pt`
+- `node_features.npy`
+- `heterogeneous_adj.npz`
 - `best_gcn_minibatch.pt`
 - `gcn_minibatch_results.json`
-
----
-
-# 📊 Experimental Setup
-
-- All 122,817 documents have labels
-- 85% labels hidden using boolean masks
-- Test labels used only for final evaluation
-- Standard semi-supervised benchmarking protocol
